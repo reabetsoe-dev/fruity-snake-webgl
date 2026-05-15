@@ -12,11 +12,15 @@ public class Menu : MonoBehaviour
 
     public void ExitGame()
     {
+#if UNITY_WEBGL
+        Debug.Log("Quit not supported in WebGL");
+#else
 #if UNITY_EDITOR
         Debug.Log("Exit requested. Application.Quit only closes built players.");
 #endif
 
         // Quit game
         Application.Quit();
+#endif
     }
 }

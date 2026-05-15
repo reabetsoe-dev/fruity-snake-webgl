@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -10,41 +11,50 @@ public class SnakeController : MonoBehaviour
 
     private int partsCount = 3;
 
-    public float moveInterval = 0.25f;
+    // Lower = faster, Higher = slower
+    public float moveInterval = 0.14f;
     public float minDistance;
-    public int scoreToNextLevel = 5;
-    public int scoreToWin = 10;
+    public int growthPerFruit = 3;
+    public int level1FruitTarget = 12;
+    public int level2FruitTarget = 18;
 
     private Rigidbody rb;
     private Vector3 currentDirection = Vector3.forward;
     private Vector3 queuedDirection = Vector3.forward;
     private float moveTimer;
     private bool gameOverStarted;
+    private bool isPaused;
     private float ignoreSelfCollisionUntil;
 
     public GameObject playground;
     private GameObject currentPart;
     private GameObject prevPart;
     public GameObject game_over_panel;
+    public GameObject pausePanel;
 
     public GameObject snakePartPrefab;
     public GameObject fruitPrefab;
 
     private int score;
+    private int fruitsEaten;
     public Text scoreText;
 
     // Use this for initialization
     void Start()
     {
+        Time.timeScale = 1f;
         rb = GetComponent<Rigidbody>();
         queuedDirection = currentDirection;
         UpdateScoreText();
+        SetupPausePanel();
     }
 
     // Update is called once per frame
     void Update()
     {
-        if (gameOverStarted)
+        HandlePauseInput();
+
+        if (gameOverStarted || isPaused)
         {
             return;
         }
@@ -106,6 +116,19 @@ public class SnakeController : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        HandleContact(other);
+    }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (collision != null)
+        {
+            HandleContact(collision.collider);
+        }
+    }
+
+    private void HandleContact(Collider other)
+    {
         if (other == null || gameOverStarted)
         {
             return;
@@ -127,8 +150,13 @@ public class SnakeController : MonoBehaviour
     {
         Debug.Log("Fruit eaten: " + fruitCollider.gameObject.name);
 
-        AddSnakePart();
-        ignoreSelfCollisionUntil = Time.time + (GetMoveInterval() * 2f);
+        int growthAmount = GetGrowthPerFruit();
+        for (int index = 0; index < growthAmount; index++)
+        {
+            AddSnakePart();
+        }
+
+        ignoreSelfCollisionUntil = Time.time + (GetMoveInterval() * (growthAmount + 3));
 
         // Make fruit disappear
         Destroy(fruitCollider.transform.gameObject);
@@ -150,8 +178,9 @@ public class SnakeController : MonoBehaviour
 
         // Increase the player's score
         score++;
+        fruitsEaten++;
         UpdateScoreText();
-        Debug.Log("Score updated: " + score);
+        Debug.Log("Score updated: " + score + ", fruits eaten: " + fruitsEaten);
 
         CheckLevelProgress();
     }
@@ -209,22 +238,178 @@ public class SnakeController : MonoBehaviour
     {
         string currentScene = SceneManager.GetActiveScene().name;
 
-        if (currentScene == "Level_1" && score >= scoreToNextLevel)
+        if (currentScene == "Level_1" && fruitsEaten >= level1FruitTarget)
         {
-            Debug.Log("Level_1 completed at score " + score + ". Loading Level_2.");
+            Debug.Log("Level_1 completed after " + fruitsEaten + " fruits. Loading Level_2.");
             LoadNextLevel("Level_2");
         }
-        else if (currentScene == "Level_2" && score >= scoreToWin)
+        else if (currentScene == "Level_2" && fruitsEaten >= level2FruitTarget)
         {
-            Debug.Log("Level_2 completed at score " + score + ". Returning to Main Menu.");
-            SceneManager.LoadScene("Main Menu");
+            Debug.Log("Level_2 completed after " + fruitsEaten + " fruits. Returning to Main Menu.");
+            QuitToMainMenu();
         }
     }
 
     private void LoadNextLevel(string sceneName)
     {
+        Time.timeScale = 1f;
         LoadingLevel.SetNextScene(sceneName);
         SceneManager.LoadScene("LoadingScene");
+    }
+
+    private void HandlePauseInput()
+    {
+        if (Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.Escape))
+        {
+            TogglePause();
+        }
+    }
+
+    private void TogglePause()
+    {
+        if (isPaused)
+        {
+            ResumeGame();
+        }
+        else
+        {
+            PauseGame();
+        }
+    }
+
+    private void PauseGame()
+    {
+        if (gameOverStarted)
+        {
+            return;
+        }
+
+        isPaused = true;
+        Time.timeScale = 0f;
+
+        if (pausePanel != null)
+        {
+            pausePanel.SetActive(true);
+        }
+
+        Debug.Log("Game Paused");
+    }
+
+    public void ResumeGame()
+    {
+        isPaused = false;
+        Time.timeScale = 1f;
+
+        if (pausePanel != null)
+        {
+            pausePanel.SetActive(false);
+        }
+
+        Debug.Log("Game Resumed");
+    }
+
+    public void QuitToMainMenu()
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("Main Menu");
+    }
+
+    private void SetupPausePanel()
+    {
+        EnsureEventSystem();
+
+        if (pausePanel == null)
+        {
+            pausePanel = CreatePausePanel();
+        }
+
+        pausePanel.SetActive(false);
+    }
+
+    private void EnsureEventSystem()
+    {
+        if (FindObjectOfType<EventSystem>() == null)
+        {
+            GameObject eventSystemObject = new GameObject("EventSystem");
+            eventSystemObject.AddComponent<EventSystem>();
+            eventSystemObject.AddComponent<StandaloneInputModule>();
+        }
+    }
+
+    private GameObject CreatePausePanel()
+    {
+        GameObject canvasObject = new GameObject("Pause Canvas", typeof(RectTransform));
+        Canvas canvas = canvasObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvasObject.AddComponent<CanvasScaler>();
+        canvasObject.AddComponent<GraphicRaycaster>();
+
+        GameObject panelObject = new GameObject("Pause Panel", typeof(RectTransform));
+        panelObject.transform.SetParent(canvasObject.transform, false);
+
+        RectTransform panelRect = panelObject.GetComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0f, 0f);
+        panelRect.anchorMax = new Vector2(1f, 1f);
+        panelRect.offsetMin = Vector2.zero;
+        panelRect.offsetMax = Vector2.zero;
+
+        Image panelImage = panelObject.AddComponent<Image>();
+        panelImage.color = new Color(0f, 0f, 0f, 0.75f);
+
+        Text titleText = CreatePauseText(panelObject.transform, "Paused", 34, new Vector2(0f, 85f), new Vector2(320f, 70f));
+        titleText.fontStyle = FontStyle.Bold;
+
+        Button resumeButton = CreatePauseButton(panelObject.transform, "Resume", new Vector2(0f, 0f));
+        resumeButton.onClick.AddListener(ResumeGame);
+
+        Button quitButton = CreatePauseButton(panelObject.transform, "Quit to Main Menu", new Vector2(0f, -70f));
+        quitButton.onClick.AddListener(QuitToMainMenu);
+
+        return panelObject;
+    }
+
+    private Text CreatePauseText(Transform parent, string label, int fontSize, Vector2 anchoredPosition, Vector2 sizeDelta)
+    {
+        GameObject textObject = new GameObject(label, typeof(RectTransform));
+        textObject.transform.SetParent(parent, false);
+
+        RectTransform rect = textObject.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = sizeDelta;
+
+        Text text = textObject.AddComponent<Text>();
+        text.text = label;
+        text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        text.fontSize = fontSize;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = Color.white;
+
+        return text;
+    }
+
+    private Button CreatePauseButton(Transform parent, string label, Vector2 anchoredPosition)
+    {
+        GameObject buttonObject = new GameObject(label + " Button", typeof(RectTransform));
+        buttonObject.transform.SetParent(parent, false);
+
+        RectTransform rect = buttonObject.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = new Vector2(280f, 48f);
+
+        Image image = buttonObject.AddComponent<Image>();
+        image.color = new Color(1f, 1f, 1f, 0.95f);
+
+        Button button = buttonObject.AddComponent<Button>();
+        button.targetGraphic = image;
+
+        Text buttonText = CreatePauseText(buttonObject.transform, label, 20, Vector2.zero, new Vector2(260f, 44f));
+        buttonText.color = Color.black;
+
+        return button;
     }
 
     private void HandleKeyboardInput()
@@ -292,6 +477,16 @@ public class SnakeController : MonoBehaviour
         }
 
         return moveInterval;
+    }
+
+    private int GetGrowthPerFruit()
+    {
+        if (growthPerFruit < 1)
+        {
+            return 1;
+        }
+
+        return growthPerFruit;
     }
 
     private float GetStepDistance()
@@ -365,6 +560,12 @@ public class SnakeController : MonoBehaviour
             return;
         }
 
+        Time.timeScale = 1f;
+        if (pausePanel != null)
+        {
+            pausePanel.SetActive(false);
+        }
+
         StartCoroutine(GameOver(reason));
     }
 
@@ -390,5 +591,10 @@ public class SnakeController : MonoBehaviour
 
         // Return to main menu
         SceneManager.LoadScene("Main Menu");
+    }
+
+    private void OnDestroy()
+    {
+        Time.timeScale = 1f;
     }
 }
