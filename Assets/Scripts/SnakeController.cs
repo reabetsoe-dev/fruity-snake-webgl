@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -10,13 +10,17 @@ public class SnakeController : MonoBehaviour
 
     private int partsCount = 3;
 
-    public float moveInterval = 0.35f;
+    public float moveInterval = 0.25f;
     public float minDistance;
+    public int scoreToNextLevel = 5;
+    public int scoreToWin = 10;
 
     private Rigidbody rb;
     private Vector3 currentDirection = Vector3.forward;
     private Vector3 queuedDirection = Vector3.forward;
     private float moveTimer;
+    private bool gameOverStarted;
+    private float ignoreSelfCollisionUntil;
 
     public GameObject playground;
     private GameObject currentPart;
@@ -34,11 +38,17 @@ public class SnakeController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         queuedDirection = currentDirection;
+        UpdateScoreText();
     }
 
     // Update is called once per frame
     void Update()
     {
+        if (gameOverStarted)
+        {
+            return;
+        }
+
         HandleKeyboardInput();
         HandleTouchInput();
 
@@ -96,50 +106,85 @@ public class SnakeController : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.tag == "Fruit")
+        if (other == null || gameOverStarted)
         {
-            AddSnakePart();
+            return;
+        }
 
-            // Make fruit disappear
-            DestroyObject(other.transform.gameObject);
+        if (other.CompareTag("Fruit"))
+        {
+            EatFruit(other);
+            return;
+        }
 
-            // Play "eat_fruit" sound
-            GetComponent<AudioSource>().Play();
+        if (IsDeadlyCollision(other))
+        {
+            StartGameOver("Hit " + other.gameObject.name + " with tag " + other.gameObject.tag);
+        }
+    }
 
-            // Spawn a new fruit on playground at random position
+    private void EatFruit(Collider fruitCollider)
+    {
+        Debug.Log("Fruit eaten: " + fruitCollider.gameObject.name);
+
+        AddSnakePart();
+        ignoreSelfCollisionUntil = Time.time + (GetMoveInterval() * 2f);
+
+        // Make fruit disappear
+        Destroy(fruitCollider.transform.gameObject);
+
+        // Play "eat_fruit" sound if present
+        AudioSource audioSource = GetComponent<AudioSource>();
+        if (audioSource != null)
+        {
+            audioSource.Play();
+        }
+
+        // Spawn a new fruit on playground at random position
+        if (fruitPrefab != null)
+        {
             GameObject instance = Instantiate(fruitPrefab) as GameObject;
             instance.transform.position = RandomPointInBox();
             instance.transform.rotation = Quaternion.identity;
-
-            // Increase the player's score
-            score++;
-            // Update score in UI
-            scoreText.text = "" + score;
-
-            if (score >= 10)
-            {
-                NextLevel();
-            }
         }
 
-        // The game is over when the snake hits the border, an obstacle or itself
-        else if (other.tag == "Obstacle" || other.tag == "Snake")
-        {
-            StartCoroutine(GameOver());
-        }
+        // Increase the player's score
+        score++;
+        UpdateScoreText();
+        Debug.Log("Score updated: " + score);
+
+        CheckLevelProgress();
     }
 
     private void AddSnakePart()
     {
+        if (snakePartPrefab == null || snakeParts.Count == 0)
+        {
+            Debug.Log("Snake growth skipped because the part prefab or snake part list is missing.");
+            return;
+        }
+
         // Spawn a new part of snake
         GameObject newPart = Instantiate(snakePartPrefab) as GameObject;
         newPart.transform.SetParent(transform.parent);
 
-        // Get last snakePart position
-        Vector3 oldPos = snakeParts[snakeParts.Count - 1].transform.localPosition;
+        int lastIndex = snakeParts.Count - 1;
+        Vector3 oldPos = snakeParts[lastIndex].transform.localPosition;
+        Vector3 growDirection = -currentDirection;
+
+        if (snakeParts.Count > 1)
+        {
+            Vector3 beforeLastPos = snakeParts[lastIndex - 1].transform.localPosition;
+            Vector3 tailDirection = oldPos - beforeLastPos;
+
+            if (tailDirection.sqrMagnitude > 0.01f)
+            {
+                growDirection = tailDirection.normalized;
+            }
+        }
 
         // Attach new part at the end of snake body
-        Vector3 newPos = new Vector3(oldPos.x + 1, oldPos.y, oldPos.z);
+        Vector3 newPos = oldPos + (growDirection * GetStepDistance());
         newPart.transform.localPosition = newPos;
         newPart.transform.localRotation = Quaternion.identity;
 
@@ -150,6 +195,36 @@ public class SnakeController : MonoBehaviour
 
         // Add newPart to list of parts
         snakeParts.Add(newPart);
+    }
+
+    private void UpdateScoreText()
+    {
+        if (scoreText != null)
+        {
+            scoreText.text = "" + score;
+        }
+    }
+
+    private void CheckLevelProgress()
+    {
+        string currentScene = SceneManager.GetActiveScene().name;
+
+        if (currentScene == "Level_1" && score >= scoreToNextLevel)
+        {
+            Debug.Log("Level_1 completed at score " + score + ". Loading Level_2.");
+            LoadNextLevel("Level_2");
+        }
+        else if (currentScene == "Level_2" && score >= scoreToWin)
+        {
+            Debug.Log("Level_2 completed at score " + score + ". Returning to Main Menu.");
+            SceneManager.LoadScene("Main Menu");
+        }
+    }
+
+    private void LoadNextLevel(string sceneName)
+    {
+        LoadingLevel.SetNextScene(sceneName);
+        SceneManager.LoadScene("LoadingScene");
     }
 
     private void HandleKeyboardInput()
@@ -229,6 +304,47 @@ public class SnakeController : MonoBehaviour
         return minDistance;
     }
 
+    private bool IsDeadlyCollision(Collider other)
+    {
+        if (other.CompareTag("Obstacle"))
+        {
+            return true;
+        }
+
+        if (other.CompareTag("Snake"))
+        {
+            if (Time.time < ignoreSelfCollisionUntil)
+            {
+                Debug.Log("Ignored temporary self-collision after fruit growth: " + other.gameObject.name);
+                return false;
+            }
+
+            if (IsIgnoredSnakePart(other.gameObject))
+            {
+                Debug.Log("Ignored adjacent snake body contact: " + other.gameObject.name);
+                return false;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsIgnoredSnakePart(GameObject snakePart)
+    {
+        for (int index = 0; index < snakeParts.Count; index++)
+        {
+            if (snakeParts[index] == snakePart ||
+                snakePart.transform.IsChildOf(snakeParts[index].transform))
+            {
+                return index <= 2;
+            }
+        }
+
+        return false;
+    }
+
     // Get random position on playground
     private Vector3 RandomPointInBox()
     {
@@ -242,34 +358,37 @@ public class SnakeController : MonoBehaviour
         );
     }
 
-    private IEnumerator GameOver()
+    private void StartGameOver(string reason)
     {
+        if (gameOverStarted)
+        {
+            return;
+        }
+
+        StartCoroutine(GameOver(reason));
+    }
+
+    private IEnumerator GameOver(string reason)
+    {
+        gameOverStarted = true;
+        Debug.Log("Game Over: " + reason);
+
         // Stop snake movement
-        rb.isKinematic = true;
-        rb.velocity = Vector3.zero;
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.velocity = Vector3.zero;
+        }
 
         // Show Gameover for 2 seconds
-        game_over_panel.SetActive(true);
+        if (game_over_panel != null)
+        {
+            game_over_panel.SetActive(true);
+        }
+
         yield return new WaitForSeconds(2);
 
         // Return to main menu
         SceneManager.LoadScene("Main Menu");
-    }
-
-    private void NextLevel()
-    {
-        // Stop snake movement
-        rb.isKinematic = true;
-        rb.velocity = Vector3.zero;
-
-        // Reset score
-        score = 0;
-
-        // Reset snake to its default state
-        partsCount = 3;
-
-        // Increase level number
-        LoadingLevel.level++;
-        SceneManager.LoadScene("LoadingScene");
     }
 }
