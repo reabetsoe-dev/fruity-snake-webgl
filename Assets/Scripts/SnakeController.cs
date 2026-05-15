@@ -10,10 +10,13 @@ public class SnakeController : MonoBehaviour
 
     private int partsCount = 3;
 
-    public float speed;
+    public float moveInterval = 0.35f;
     public float minDistance;
 
     private Rigidbody rb;
+    private Vector3 currentDirection = Vector3.forward;
+    private Vector3 queuedDirection = Vector3.forward;
+    private float moveTimer;
 
     public GameObject playground;
     private GameObject currentPart;
@@ -30,36 +33,44 @@ public class SnakeController : MonoBehaviour
     void Start()
     {
         rb = GetComponent<Rigidbody>();
+        queuedDirection = currentDirection;
     }
 
     // Update is called once per frame
     void Update()
     {
-        Move();
+        HandleKeyboardInput();
+        HandleTouchInput();
+
+        float interval = GetMoveInterval();
+        moveTimer += Time.deltaTime;
+        if (moveTimer >= interval)
+        {
+            moveTimer -= interval;
+            MoveHeadOneStep();
+        }
+
+        MoveSnakeBody();
     }
 
-    private void Move()
+    private void MoveHeadOneStep()
     {
-        // If the user swipes the mobile screen using one finger
-        if (Input.touchCount == 1 && Input.GetTouch(0).phase == TouchPhase.Moved)
+        currentDirection = queuedDirection;
+
+        if (rb != null)
         {
-            // Get movement of the finger since last frame
-            Vector2 deltaPosition = Input.GetTouch(0).deltaPosition;
-            Vector3 movement = new Vector3(deltaPosition.x, 0, deltaPosition.y);
-
-            if (deltaPosition.x != 0 || deltaPosition.y != 0)
-            {
-                // Move the snake's head to new position
-                rb.AddForce(movement * speed);
-            }
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            rb.MovePosition(rb.position + currentDirection * GetStepDistance());
         }
-
         else
         {
-            // Move snake at game start and whenever the player releases his finger from screen
-            rb.AddForce(Vector3.forward * speed);
+            transform.position += currentDirection * GetStepDistance();
         }
+    }
 
+    private void MoveSnakeBody()
+    {
         /*
          * Move other parts of the snake one by one
          */
@@ -73,7 +84,7 @@ public class SnakeController : MonoBehaviour
                 currentPart.transform.position);
 
             // Keep distance between snake parts
-            float time = Time.deltaTime * distance / minDistance * speed;
+            float time = Time.deltaTime * distance / GetStepDistance() / GetMoveInterval();
             if (time > 0.5f)
                 time = 0.5f;
 
@@ -139,6 +150,83 @@ public class SnakeController : MonoBehaviour
 
         // Add newPart to list of parts
         snakeParts.Add(newPart);
+    }
+
+    private void HandleKeyboardInput()
+    {
+        if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W))
+        {
+            QueueDirection(Vector3.forward);
+        }
+        else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S))
+        {
+            QueueDirection(Vector3.back);
+        }
+        else if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A))
+        {
+            QueueDirection(Vector3.left);
+        }
+        else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D))
+        {
+            QueueDirection(Vector3.right);
+        }
+    }
+
+    private void HandleTouchInput()
+    {
+        // Keep the existing mobile swipe/drag control path.
+        if (Input.touchCount == 1 && Input.GetTouch(0).phase == TouchPhase.Moved)
+        {
+            Vector2 deltaPosition = Input.GetTouch(0).deltaPosition;
+
+            if (deltaPosition.sqrMagnitude > 0.01f)
+            {
+                if (Mathf.Abs(deltaPosition.x) > Mathf.Abs(deltaPosition.y))
+                {
+                    QueueDirection(deltaPosition.x > 0 ? Vector3.right : Vector3.left);
+                }
+                else
+                {
+                    QueueDirection(deltaPosition.y > 0 ? Vector3.forward : Vector3.back);
+                }
+            }
+        }
+    }
+
+    private void QueueDirection(Vector3 newDirection)
+    {
+        if (IsOppositeDirection(currentDirection, newDirection) ||
+            IsOppositeDirection(queuedDirection, newDirection))
+        {
+            return;
+        }
+
+        queuedDirection = newDirection;
+    }
+
+    private bool IsOppositeDirection(Vector3 firstDirection, Vector3 secondDirection)
+    {
+        return Vector3.Dot(firstDirection, secondDirection) < -0.9f;
+    }
+
+    private float GetMoveInterval()
+    {
+        if (moveInterval <= 0.01f)
+        {
+            return 0.01f;
+        }
+
+        return moveInterval;
+    }
+
+    private float GetStepDistance()
+    {
+        if (minDistance <= 0.01f)
+        {
+            return 1f;
+        }
+
+        return minDistance;
     }
 
     // Get random position on playground
