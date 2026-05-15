@@ -11,8 +11,8 @@ public class SnakeController : MonoBehaviour
 
     private int partsCount = 3;
 
-    // Lower = faster, Higher = slower
-    public float moveInterval = 0.14f;
+    // Lower moveInterval = faster snake
+    public float moveInterval = 0.07f;
     public float minDistance;
     public int growthPerFruit = 3;
     public int level1FruitTarget = 12;
@@ -22,9 +22,8 @@ public class SnakeController : MonoBehaviour
     private Vector3 currentDirection = Vector3.forward;
     private Vector3 queuedDirection = Vector3.forward;
     private float moveTimer;
-    private bool gameOverStarted;
+    private bool isGameOver;
     private bool isPaused;
-    private float ignoreSelfCollisionUntil;
 
     public GameObject playground;
     private GameObject currentPart;
@@ -54,7 +53,7 @@ public class SnakeController : MonoBehaviour
     {
         HandlePauseInput();
 
-        if (gameOverStarted || isPaused)
+        if (isGameOver || isPaused)
         {
             return;
         }
@@ -129,12 +128,14 @@ public class SnakeController : MonoBehaviour
 
     private void HandleContact(Collider other)
     {
-        if (other == null || gameOverStarted)
+        if (other == null || isGameOver)
         {
             return;
         }
 
-        if (other.CompareTag("Fruit"))
+        Debug.Log("Collided with: " + other.gameObject.name + " tag: " + other.gameObject.tag);
+
+        if (IsFruitCollision(other))
         {
             EatFruit(other);
             return;
@@ -142,8 +143,11 @@ public class SnakeController : MonoBehaviour
 
         if (IsDeadlyCollision(other))
         {
-            StartGameOver("Hit " + other.gameObject.name + " with tag " + other.gameObject.tag);
+            StartGameOver(GetGameOverReason(other));
+            return;
         }
+
+        Debug.Log("Ignored collision with: " + other.gameObject.name + " tag: " + other.gameObject.tag);
     }
 
     private void EatFruit(Collider fruitCollider)
@@ -155,8 +159,6 @@ public class SnakeController : MonoBehaviour
         {
             AddSnakePart();
         }
-
-        ignoreSelfCollisionUntil = Time.time + (GetMoveInterval() * (growthAmount + 3));
 
         // Make fruit disappear
         Destroy(fruitCollider.transform.gameObject);
@@ -180,9 +182,10 @@ public class SnakeController : MonoBehaviour
         score++;
         fruitsEaten++;
         UpdateScoreText();
+        Debug.Log("Score: " + score);
         Debug.Log("Score updated: " + score + ", fruits eaten: " + fruitsEaten);
 
-        CheckLevelProgress();
+        CheckLevelProgression();
     }
 
     private void AddSnakePart()
@@ -234,13 +237,15 @@ public class SnakeController : MonoBehaviour
         }
     }
 
-    private void CheckLevelProgress()
+    private void CheckLevelProgression()
     {
+        Debug.Log("Checking level progress... fruits eaten: " + fruitsEaten);
+
         string currentScene = SceneManager.GetActiveScene().name;
 
         if (currentScene == "Level_1" && fruitsEaten >= level1FruitTarget)
         {
-            Debug.Log("Level_1 completed after " + fruitsEaten + " fruits. Loading Level_2.");
+            Debug.Log("Loading Level_2");
             LoadNextLevel("Level_2");
         }
         else if (currentScene == "Level_2" && fruitsEaten >= level2FruitTarget)
@@ -279,7 +284,7 @@ public class SnakeController : MonoBehaviour
 
     private void PauseGame()
     {
-        if (gameOverStarted)
+        if (isGameOver)
         {
             return;
         }
@@ -499,45 +504,45 @@ public class SnakeController : MonoBehaviour
         return minDistance;
     }
 
-    private bool IsDeadlyCollision(Collider other)
+    private bool IsFruitCollision(Collider other)
     {
-        if (other.CompareTag("Obstacle"))
-        {
-            return true;
-        }
+        string objectTag = other.gameObject.tag;
 
-        if (other.CompareTag("Snake"))
-        {
-            if (Time.time < ignoreSelfCollisionUntil)
-            {
-                Debug.Log("Ignored temporary self-collision after fruit growth: " + other.gameObject.name);
-                return false;
-            }
-
-            if (IsIgnoredSnakePart(other.gameObject))
-            {
-                Debug.Log("Ignored adjacent snake body contact: " + other.gameObject.name);
-                return false;
-            }
-
-            return true;
-        }
-
-        return false;
+        return other.CompareTag("Fruit") ||
+            objectTag == "Apple" ||
+            objectTag == "Banana";
     }
 
-    private bool IsIgnoredSnakePart(GameObject snakePart)
+    private bool IsDeadlyCollision(Collider other)
     {
-        for (int index = 0; index < snakeParts.Count; index++)
+        string objectTag = other.gameObject.tag;
+
+        return other.CompareTag("Obstacle") ||
+            objectTag == "Wall" ||
+            objectTag == "Boundary" ||
+            objectTag == "SnakeBody";
+    }
+
+    private string GetGameOverReason(Collider other)
+    {
+        string objectTag = other.gameObject.tag;
+
+        if (other.CompareTag("Obstacle"))
         {
-            if (snakeParts[index] == snakePart ||
-                snakePart.transform.IsChildOf(snakeParts[index].transform))
-            {
-                return index <= 2;
-            }
+            return "hit obstacle: " + other.gameObject.name;
         }
 
-        return false;
+        if (objectTag == "Wall" || objectTag == "Boundary")
+        {
+            return "hit wall/boundary: " + other.gameObject.name;
+        }
+
+        if (objectTag == "SnakeBody")
+        {
+            return "hit own body: " + other.gameObject.name;
+        }
+
+        return "hit death object: " + other.gameObject.name + " tag: " + objectTag;
     }
 
     // Get random position on playground
@@ -555,7 +560,7 @@ public class SnakeController : MonoBehaviour
 
     private void StartGameOver(string reason)
     {
-        if (gameOverStarted)
+        if (isGameOver)
         {
             return;
         }
@@ -571,8 +576,8 @@ public class SnakeController : MonoBehaviour
 
     private IEnumerator GameOver(string reason)
     {
-        gameOverStarted = true;
-        Debug.Log("Game Over: " + reason);
+        isGameOver = true;
+        Debug.Log("GameOver reason: " + reason);
 
         // Stop snake movement
         if (rb != null)
