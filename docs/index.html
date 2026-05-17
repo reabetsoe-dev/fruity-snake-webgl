@@ -3,23 +3,100 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Unity WebGL Player | Fruity Snake</title>
-    <link rel="shortcut icon" href="TemplateData/favicon.ico">
-    <link rel="stylesheet" href="TemplateData/style.css">
-    <script src="TemplateData/UnityProgress.js"></script>  
-    <script src="Build/UnityLoader.js"></script>
-    <script>
-      var gameInstance = UnityLoader.instantiate("gameContainer", "Build/docs.json", {onProgress: UnityProgress});
-    </script>
+    <link rel="shortcut icon" href="./TemplateData/favicon.ico">
+    <link rel="stylesheet" href="./TemplateData/style.css">
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #ffffff;
+        overflow: hidden;
+      }
+
+      .webgl-content {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      #gameContainer {
+        width: 960px;
+        height: 600px;
+      }
+
+      #loadError {
+        display: none;
+        width: 920px;
+        max-width: calc(100vw - 40px);
+        padding: 20px;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #222222;
+        background: #ffffff;
+        border: 1px solid #cccccc;
+      }
+    </style>
+    <script src="./TemplateData/UnityProgress.js"></script>
+    <script src="./Build/UnityLoader.js"></script>
   </head>
   <body>
     <div class="webgl-content">
-      <div id="gameContainer" style="width: 960px; height: 600px"></div>
+      <div id="gameContainer"></div>
+      <div id="loadError">
+        Fruity Snake could not load. Open this page through GitHub Pages or another HTTP server, not directly from a file.
+      </div>
       <div class="footer">
         <div class="webgl-logo"></div>
-        <div class="fullscreen" onclick="gameInstance.SetFullscreen(1)"></div>
+        <div class="fullscreen" onclick="setFullscreen()"></div>
         <div class="title">Fruity Snake</div>
       </div>
     </div>
+
+    <script>
+      var gameInstance = null;
+
+      function showLoadError(message) {
+        var loadError = document.getElementById("loadError");
+        var gameContainer = document.getElementById("gameContainer");
+
+        if (loadError) {
+          loadError.style.display = "block";
+          if (message) {
+            loadError.innerHTML = message;
+          }
+        }
+
+        if (gameContainer) {
+          gameContainer.style.display = "none";
+        }
+      }
+
+      function setFullscreen() {
+        if (gameInstance && gameInstance.SetFullscreen) {
+          gameInstance.SetFullscreen(1);
+        }
+      }
+
+      window.onload = function () {
+        if (window.location.protocol === "file:") {
+          showLoadError("Fruity Snake must be served over http:// or https://. Direct file:// loading blocks Unity WebGL build files.");
+          return;
+        }
+
+        if (typeof UnityLoader === "undefined") {
+          showLoadError("UnityLoader.js was not found. Confirm ./Build/UnityLoader.js exists in the published docs folder.");
+          return;
+        }
+
+        gameInstance = UnityLoader.instantiate("gameContainer", "./Build/docs.json", {
+          onProgress: UnityProgress
+        });
+      };
+    </script>
   </body>
 </html>

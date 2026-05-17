@@ -5,6 +5,9 @@
 [Ll]ogs/
 UserSettings/
 
+!docs/Build/
+!docs/Build/**
+
 *.csproj
 *.sln
 *.user
